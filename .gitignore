@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+work/
+demo_output/
+pose_landmarker_lite.task
+rep_comparison.png
+normalized_curves.csv
+analysis_settings.json
+angle_timeline.png
+rep_scores.png
+reps/

@@ -185,6 +185,12 @@ for left, right in zip(
 # 6. 状态机自动计数
 # =========================
 
+# 归一化可能把1°左右的跟踪抖动放大成完整上下运动。
+# 和主分析入口一样：左右全程百分位幅度均不足5°时不计数。
+if max(left_high - left_low, right_high - right_low) < 5.0:
+    combined = [0.0] * len(combined)
+    print("整体运动幅度不足：不将静止姿态的小抖动计为动作")
+
 rep_count = 0
 
 stage = "waiting"

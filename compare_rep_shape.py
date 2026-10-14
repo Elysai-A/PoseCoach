@@ -1,111 +1,37 @@
-import csv
-import matplotlib.pyplot as plt
+"""展示指定rep的统一进度曲线，使用与评分完全相同的数据。"""
+
+import argparse
+from pathlib import Path
+
+from analyze_reps_3d import ROOT, analyze_data, load_angle_csv
 
 
-# 我们先研究第几次动作
-target_rep = 1
+def main():
+    parser = argparse.ArgumentParser(description="Compare normalized left/right rep curves")
+    parser.add_argument("--rep", type=int, default=1)
+    parser.add_argument("--input", type=Path, default=ROOT / "lat_pulldown_2d_3d.csv")
+    parser.add_argument("--output", type=Path, default=ROOT / "rep_comparison.png")
+    parser.add_argument("--show", action="store_true", help="Also show a window on your own computer")
+    args = parser.parse_args()
+    try:
+        results, curves, _ = analyze_data(*load_angle_csv(args.input))
+        if not 1 <= args.rep <= len(results):
+            raise ValueError(f"Rep must be between 1 and {len(results)}; requested {args.rep}")
+        import matplotlib
+        if not args.show:
+            matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from visualize_reps import make_rep_figure
+        figure = make_rep_figure(results[args.rep - 1], [row for row in curves if row["rep"] == args.rep])
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        figure.savefig(args.output, dpi=150)
+        print(f"Rep {args.rep} comparison saved: {args.output}")
+        if args.show:
+            plt.show()
+        plt.close(figure)
+    except (OSError, ValueError) as error:
+        parser.exit(1, f"PoseCoach: {error}\n")
 
 
-# =========================
-# 1. 找到这一次动作的时间范围
-# =========================
-
-with open("rep_analysis.csv", "r") as file:
-
-    reader = csv.DictReader(file)
-
-    for row in reader:
-
-        if int(row["rep"]) == target_rep:
-
-            start_time = float(row["start_time"])
-            end_time = float(row["end_time"])
-
-            break
-
-
-print("分析第", target_rep, "次动作")
-print("开始时间:", start_time)
-print("结束时间:", end_time)
-times = []
-left_angles = []
-right_angles = []
-
-
-with open(
-    "lat_pulldown_2d_3d.csv",
-    "r"
-) as file:
-
-    reader = csv.DictReader(file)
-
-    for row in reader:
-
-        time = float(row["time"])
-
-        if start_time <= time <= end_time:
-
-            times.append(time)
-
-            left_angles.append(
-                float(row["left_3d"])
-            )
-
-            right_angles.append(
-                float(row["right_3d"])
-            )
-def normalize(data):
-
-    minimum = min(data)
-    maximum = max(data)
-
-    result = []
-
-    for value in data:
-
-        normalized = (
-            (value - minimum)
-            / (maximum - minimum)
-        )
-
-        result.append(normalized)
-
-    return result
-
-
-left_normalized = normalize(
-    left_angles
-)
-
-right_normalized = normalize(
-    right_angles
-)
-plt.figure(
-    figsize=(10, 5)
-)
-
-plt.plot(
-    times,
-    left_normalized,
-    label="Left"
-)
-
-plt.plot(
-    times,
-    right_normalized,
-    label="Right"
-)
-
-plt.xlabel("Time (s)")
-plt.ylabel("Normalized Motion")
-
-plt.title(
-    f"Rep {target_rep} - Left vs Right"
-)
-
-plt.legend()
-
-plt.grid()
-
-plt.show()
-
+if __name__ == "__main__":
+    main()
