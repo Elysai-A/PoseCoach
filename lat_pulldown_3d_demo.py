@@ -2,6 +2,8 @@ import cv2
 import mediapipe as mp
 import math
 import csv
+import argparse
+from pathlib import Path
 
 
 # =========================
@@ -134,332 +136,364 @@ def arm_visible(
     )
 
 
-# =========================
-# 6. 创建 MediaPipe
-# =========================
 
-BaseOptions = mp.tasks.BaseOptions
-PoseLandmarker = mp.tasks.vision.PoseLandmarker
-PoseLandmarkerOptions = mp.tasks.vision.PoseLandmarkerOptions
-RunningMode = mp.tasks.vision.RunningMode
-
-options = PoseLandmarkerOptions(
-    base_options=BaseOptions(
-        model_asset_path="pose_landmarker_lite.task"
-    ),
-    running_mode=RunningMode.VIDEO,
-    num_poses=1
-)
-
-landmarker = PoseLandmarker.create_from_options(
-    options
-)
+ROOT = Path(__file__).resolve().parent
 
 
-# =========================
-# 7. 打开视频
-# =========================
+def process_video(video_path, model_path, output_path, headless=False):
+    video_path, model_path, output_path = map(Path, (video_path, model_path, output_path))
+    # 在初始化模型或写CSV前检查文件，失败时保留原数据。
+    if not video_path.is_file():
+        raise FileNotFoundError(f"视频不存在: {video_path}")
+    if not model_path.is_file():
+        raise FileNotFoundError(f"MediaPipe模型不存在: {model_path}")
+    if output_path.resolve() in (video_path.resolve(), model_path.resolve()):
+        raise ValueError("CSV output must differ from video/model paths")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    cap = None
+    landmarker = None
+    try:
+        BaseOptions = mp.tasks.BaseOptions
+        PoseLandmarker = mp.tasks.vision.PoseLandmarker
+        PoseLandmarkerOptions = mp.tasks.vision.PoseLandmarkerOptions
+        RunningMode = mp.tasks.vision.RunningMode
 
-video_path = "lat_pulldown_neutral.mp4"
-
-cap = cv2.VideoCapture(
-    video_path
-)
-
-if not cap.isOpened():
-    print("无法打开视频")
-    exit()
-
-
-fps = cap.get(
-    cv2.CAP_PROP_FPS
-)
-
-if fps <= 0:
-    fps = 30
-
-delay = int(
-    1000 / fps
-)
-
-frame_index = 0
-
-records = []
-
-print("2D / 3D 对照分析已启动")
-print("视频帧率:", fps)
-
-
-# =========================
-# 8. 处理视频
-# =========================
-
-while True:
-
-    ret, frame = cap.read()
-
-    if not ret:
-        print("视频播放结束")
-        break
-
-
-    rgb_frame = cv2.cvtColor(
-        frame,
-        cv2.COLOR_BGR2RGB
-    )
-
-    mp_image = mp.Image(
-        image_format=mp.ImageFormat.SRGB,
-        data=rgb_frame
-    )
-
-
-    timestamp_ms = int(
-        frame_index * 1000 / fps
-    )
-
-    frame_index += 1
-
-
-    result = landmarker.detect_for_video(
-        mp_image,
-        timestamp_ms
-    )
-
-
-    # 必须同时有 2D 和 3D 数据
-    if (
-        result.pose_landmarks
-        and result.pose_world_landmarks
-    ):
-
-        landmarks = (
-            result.pose_landmarks[0]
+        options = PoseLandmarkerOptions(
+            base_options=BaseOptions(
+                model_asset_path=str(model_path)
+            ),
+            running_mode=RunningMode.VIDEO,
+            num_poses=1
         )
 
-        world_landmarks = (
-            result.pose_world_landmarks[0]
+        landmarker = PoseLandmarker.create_from_options(
+            options
         )
 
-        height, width, _ = frame.shape
+
+        # =========================
+        # 7. 打开视频
+        # =========================
+
+        video_path = str(video_path)
+
+        cap = cv2.VideoCapture(
+            video_path
+        )
+
+        if not cap.isOpened():
+            raise ValueError(f"无法打开视频: {video_path}")
+
+
+        fps = cap.get(
+            cv2.CAP_PROP_FPS
+        )
+
+        if fps <= 0:
+            fps = 30
+
+        delay = int(
+            1000 / fps
+        )
+
+        frame_index = 0
+
+        records = []
+
+        print("2D / 3D 对照分析已启动")
+        print("视频帧率:", fps)
 
 
         # =========================
-        # 左臂
+        # 8. 处理视频
         # =========================
 
-        left_shoulder = landmarks[11]
-        left_elbow = landmarks[13]
-        left_wrist = landmarks[15]
+        while True:
+
+            ret, frame = cap.read()
+
+            if not ret:
+                print("视频播放结束")
+                break
 
 
-        # =========================
-        # 右臂
-        # =========================
+            rgb_frame = cv2.cvtColor(
+                frame,
+                cv2.COLOR_BGR2RGB
+            )
 
-        right_shoulder = landmarks[12]
-        right_elbow = landmarks[14]
-        right_wrist = landmarks[16]
-
-
-        left_2d = None
-        right_2d = None
-
-        left_3d = None
-        right_3d = None
+            mp_image = mp.Image(
+                image_format=mp.ImageFormat.SRGB,
+                data=rgb_frame
+            )
 
 
-        # =========================
-        # 左侧计算
-        # =========================
+            timestamp_ms = int(
+                frame_index * 1000 / fps
+            )
 
-        if arm_visible(
-            left_shoulder,
-            left_elbow,
-            left_wrist
-        ):
+            frame_index += 1
 
-            left_2d = calculate_angle_2d(
-                to_pixel(
+
+            result = landmarker.detect_for_video(
+                mp_image,
+                timestamp_ms
+            )
+
+
+            # 必须同时有 2D 和 3D 数据
+            if (
+                result.pose_landmarks
+                and result.pose_world_landmarks
+            ):
+
+                landmarks = (
+                    result.pose_landmarks[0]
+                )
+
+                world_landmarks = (
+                    result.pose_world_landmarks[0]
+                )
+
+                height, width, _ = frame.shape
+
+
+                # =========================
+                # 左臂
+                # =========================
+
+                left_shoulder = landmarks[11]
+                left_elbow = landmarks[13]
+                left_wrist = landmarks[15]
+
+
+                # =========================
+                # 右臂
+                # =========================
+
+                right_shoulder = landmarks[12]
+                right_elbow = landmarks[14]
+                right_wrist = landmarks[16]
+
+
+                left_2d = None
+                right_2d = None
+
+                left_3d = None
+                right_3d = None
+
+
+                # =========================
+                # 左侧计算
+                # =========================
+
+                if arm_visible(
                     left_shoulder,
-                    width,
-                    height
-                ),
-                to_pixel(
                     left_elbow,
-                    width,
-                    height
-                ),
-                to_pixel(
-                    left_wrist,
-                    width,
-                    height
-                )
-            )
+                    left_wrist
+                ):
 
-            left_3d = calculate_angle_3d(
-                to_world(
-                    world_landmarks[11]
-                ),
-                to_world(
-                    world_landmarks[13]
-                ),
-                to_world(
-                    world_landmarks[15]
-                )
-            )
+                    left_2d = calculate_angle_2d(
+                        to_pixel(
+                            left_shoulder,
+                            width,
+                            height
+                        ),
+                        to_pixel(
+                            left_elbow,
+                            width,
+                            height
+                        ),
+                        to_pixel(
+                            left_wrist,
+                            width,
+                            height
+                        )
+                    )
+
+                    left_3d = calculate_angle_3d(
+                        to_world(
+                            world_landmarks[11]
+                        ),
+                        to_world(
+                            world_landmarks[13]
+                        ),
+                        to_world(
+                            world_landmarks[15]
+                        )
+                    )
 
 
-        # =========================
-        # 右侧计算
-        # =========================
+                # =========================
+                # 右侧计算
+                # =========================
 
-        if arm_visible(
-            right_shoulder,
-            right_elbow,
-            right_wrist
-        ):
-
-            right_2d = calculate_angle_2d(
-                to_pixel(
+                if arm_visible(
                     right_shoulder,
-                    width,
-                    height
-                ),
-                to_pixel(
                     right_elbow,
-                    width,
-                    height
-                ),
-                to_pixel(
-                    right_wrist,
-                    width,
-                    height
+                    right_wrist
+                ):
+
+                    right_2d = calculate_angle_2d(
+                        to_pixel(
+                            right_shoulder,
+                            width,
+                            height
+                        ),
+                        to_pixel(
+                            right_elbow,
+                            width,
+                            height
+                        ),
+                        to_pixel(
+                            right_wrist,
+                            width,
+                            height
+                        )
+                    )
+
+                    right_3d = calculate_angle_3d(
+                        to_world(
+                            world_landmarks[12]
+                        ),
+                        to_world(
+                            world_landmarks[14]
+                        ),
+                        to_world(
+                            world_landmarks[16]
+                        )
+                    )
+
+
+                # 四个值都存在才记录
+                if (
+                    left_2d is not None
+                    and right_2d is not None
+                    and left_3d is not None
+                    and right_3d is not None
+                ):
+
+                    current_time = (
+                        timestamp_ms / 1000
+                    )
+
+                    records.append([
+                        current_time,
+                        left_2d,
+                        right_2d,
+                        left_3d,
+                        right_3d
+                    ])
+
+
+                    # =========================
+                    # 左上角显示
+                    # =========================
+
+                    cv2.putText(
+                        frame,
+                        f"2D L:{left_2d:.1f} R:{right_2d:.1f}",
+                        (50, 80),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1.5,
+                        (0, 255, 255),
+                        4
+                    )
+
+                    cv2.putText(
+                        frame,
+                        f"3D L:{left_3d:.1f} R:{right_3d:.1f}",
+                        (50, 150),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1.5,
+                        (0, 255, 255),
+                        4
+                    )
+
+
+            if not headless:
+                # =========================
+                # 缩小显示
+                # =========================
+
+                height, width = frame.shape[:2]
+
+                scale = min(
+                    960 / width,
+                    720 / height,
+                    1.0
                 )
-            )
 
-            right_3d = calculate_angle_3d(
-                to_world(
-                    world_landmarks[12]
-                ),
-                to_world(
-                    world_landmarks[14]
-                ),
-                to_world(
-                    world_landmarks[16]
+                display_frame = cv2.resize(
+                    frame,
+                    (
+                        int(width * scale),
+                        int(height * scale)
+                    )
                 )
-            )
 
 
-        # 四个值都存在才记录
-        if (
-            left_2d is not None
-            and right_2d is not None
-            and left_3d is not None
-            and right_3d is not None
-        ):
+                cv2.imshow(
+                    "PoseCoach - 2D vs 3D",
+                    display_frame
+                )
 
-            current_time = (
-                timestamp_ms / 1000
-            )
 
-            records.append([
-                current_time,
-                left_2d,
-                right_2d,
-                left_3d,
-                right_3d
+                if cv2.waitKey(delay) & 0xFF == ord("q"):
+                    break
+
+
+        # =========================
+        # 9. 保存数据
+        # =========================
+
+        with open(
+            output_path,
+            "w",
+            newline=""
+        ) as file:
+
+            writer = csv.writer(file)
+
+            writer.writerow([
+                "time",
+                "left_2d",
+                "right_2d",
+                "left_3d",
+                "right_3d"
             ])
 
-
-            # =========================
-            # 左上角显示
-            # =========================
-
-            cv2.putText(
-                frame,
-                f"2D L:{left_2d:.1f} R:{right_2d:.1f}",
-                (50, 80),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1.5,
-                (0, 255, 255),
-                4
-            )
-
-            cv2.putText(
-                frame,
-                f"3D L:{left_3d:.1f} R:{right_3d:.1f}",
-                (50, 150),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1.5,
-                (0, 255, 255),
-                4
+            writer.writerows(
+                records
             )
 
 
-    # =========================
-    # 缩小显示
-    # =========================
-
-    height, width = frame.shape[:2]
-
-    scale = min(
-        960 / width,
-        720 / height,
-        1.0
-    )
-
-    display_frame = cv2.resize(
-        frame,
-        (
-            int(width * scale),
-            int(height * scale)
-        )
-    )
+        print(f"处理帧数: {frame_index}; 有效角度帧数: {len(records)}; 跳过: {frame_index - len(records)}")
+        print(f"2D / 3D 数据已保存: {output_path}")
+        return frame_index, len(records)
 
 
-    cv2.imshow(
-        "PoseCoach - 2D vs 3D",
-        display_frame
-    )
+    finally:
+        if cap is not None:
+            cap.release()
+        if landmarker is not None:
+            landmarker.close()
+        if not headless:
+            cv2.destroyAllWindows()
 
 
-    if cv2.waitKey(delay) & 0xFF == ord("q"):
-        break
+def main():
+    parser = argparse.ArgumentParser(description="PoseCoach 2D/3D video extraction")
+    parser.add_argument("--video", type=Path, default=ROOT / "lat_pulldown_neutral.mp4")
+    parser.add_argument("--model", type=Path, default=ROOT / "pose_landmarker_lite.task")
+    parser.add_argument("--output", type=Path, default=ROOT / "lat_pulldown_2d_3d.csv")
+    parser.add_argument("--headless", action="store_true", help="Process without OpenCV windows")
+    args = parser.parse_args()
+    try:
+        process_video(args.video, args.model, args.output, args.headless)
+    except (OSError, ValueError, RuntimeError) as error:
+        parser.exit(1, f"PoseCoach: {error}\n")
 
 
-# =========================
-# 9. 保存数据
-# =========================
-
-with open(
-    "lat_pulldown_2d_3d.csv",
-    "w",
-    newline=""
-) as file:
-
-    writer = csv.writer(file)
-
-    writer.writerow([
-        "time",
-        "left_2d",
-        "right_2d",
-        "left_3d",
-        "right_3d"
-    ])
-
-    writer.writerows(
-        records
-    )
-
-
-print("2D / 3D 数据已保存")
-
-
-# =========================
-# 10. 释放资源
-# =========================
-
-cap.release()
-landmarker.close()
-cv2.destroyAllWindows()
+if __name__ == "__main__":
+    main()
