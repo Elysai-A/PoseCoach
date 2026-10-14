@@ -105,11 +105,5 @@ python analyze_reps_3d.py --config settings.json --output-dir demo_output --plot
 - 单次动作不足5点、任一侧ROM不足5°、有过大缺口或最低点不在内部时，状态为 `insufficient_data`，评分留空，不能当成完美同步。
 - MediaPipe提取器仍只记录左右都可靠的帧。开始/结尾遗漏或连续丢失时，不能恢复看不到的动作。等间隔缺帧可能无法仅由CSV识别。
 
-## 答辩先读哪里
-
-- `lat_pulldown_3d_demo.py`：`calculate_angle_3d`（点积和反余弦）、`process_video`（视频到角度CSV）。
-- `analyze_reps_3d.py`：`moving_average`、`prepare_motion`、`segment_reps`、`analyze_data`。
-- `motion_metrics.py`：`normalize_motion_curve`、`curve_mean_error`、`assess_rep`、`DEFAULT_CONFIG`。
-- `tests/test_posecoach.py`：相同曲线100分、只有ROM变化85分、时间拉伸不变、延迟/回程不同步与15次基线回归。
 
 详细的初始检查、逐文件变更、测试边界和公式解释见 `DELIVERY_REPORT_ZH.md`。
